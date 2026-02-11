@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>logtail</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      background: #1a1a1a;
+      color: #d4d4d4;
+      font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+    }
+    #header {
+      background: #2d2d2d;
+      border-bottom: 1px solid #404040;
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 32px;
+      user-select: none;
+    }
+    #path-select {
+      background: #1a1a1a;
+      color: #d4d4d4;
+      border: 1px solid #404040;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+      max-width: 60%;
+    }
+    #path-select:hover {
+      border-color: #606060;
+    }
+    #header .status {
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #header .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ec94e;
+    }
+    #header .dot.disconnected {
+      background: #e04848;
+    }
+    #terminal-wrapper {
+      height: calc(100% - 32px);
+      overflow-y: auto;
+      display: flex;
+      justify-content: center;
+    }
+    #terminal {
+      width: 160ch;
+      padding: 8px 12px;
+    }
+    #terminal::after {
+      content: '\a0';
+      display: block;
+      height: 1.4em;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      line-height: 1.4;
+    }
+    #empty-state {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #606060;
+      font-size: 16px;
+      user-select: none;
+    }
+    #paused-banner {
+      display: none;
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      background: #404040;
+      color: #ccc;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <select id="path-select"></select>
+    <span class="status">
+      <span id="line-count"></span>
+      <span class="dot" id="status-dot"></span>
+    </span>
+  </div>
+  <div id="terminal-wrapper">
+    <div id="empty-state">select an active log</div>
+    <div id="terminal"></div>
+  </div>
+  <div id="paused-banner">auto-scroll paused — scroll to bottom to resume</div>
+
+  <script>
+    const terminal = document.getElementById('terminal');
+    const wrapper = document.getElementById('terminal-wrapper');
+    const dot = document.getElementById('status-dot');
+    const banner = document.getElementById('paused-banner');
+    const lineCount = document.getElementById('line-count');
+    const pathSelect = document.getElementById('path-select');
+    const emptyState = document.getElementById('empty-state');
+    let autoScroll = true;
+    let lines = 0;
+    let selectedPath = '';
+    let ws = null;
+
+    function showEmptyState() {
+      emptyState.style.display = 'block';
+      terminal.style.display = 'none';
+      pathSelect.style.display = 'none';
+      lineCount.textContent = '';
+    }
+
+    function hideEmptyState() {
+      emptyState.style.display = 'none';
+      terminal.style.display = 'block';
+      pathSelect.style.display = '';
+    }
+
+    function isAtBottom() {
+      return wrapper.scrollHeight - wrapper.scrollTop - wrapper.clientHeight < 30;
+    }
+
+    wrapper.addEventListener('scroll', () => {
+      autoScroll = isAtBottom();
+      banner.style.display = autoScroll ? 'none' : 'block';
+    });
+
+    function clearTerminal() {
+      terminal.textContent = '';
+      lines = 0;
+      lineCount.textContent = '0 lines';
+    }
+
+    function appendText(text) {
+      if (!text) return;
+      const fragment = document.createDocumentFragment();
+      const chunks = text.split('\n');
+      for (let i = 0; i < chunks.length; i++) {
+        if (i > 0) {
+          fragment.appendChild(document.createElement('br'));
+          lines++;
+        }
+        if (chunks[i]) {
+          fragment.appendChild(document.createTextNode(chunks[i]));
+        }
+      }
+      terminal.appendChild(fragment);
+      lineCount.textContent = lines + ' lines';
+      if (autoScroll) {
+        wrapper.scrollTop = wrapper.scrollHeight;
+      }
+    }
+
+    pathSelect.addEventListener('change', () => {
+      selectedPath = pathSelect.value;
+      hideEmptyState();
+      clearTerminal();
+      document.title = 'logtail — ' + selectedPath;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'select', path: selectedPath }));
+      }
+    });
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+      ws.onopen = () => {
+        dot.classList.remove('disconnected');
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'init') {
+          if (msg.paths) {
+            pathSelect.innerHTML = '';
+            msg.paths.forEach(p => {
+              const opt = document.createElement('option');
+              opt.value = p;
+              opt.textContent = p;
+              pathSelect.appendChild(opt);
+            });
+          }
+          if (!msg.path) {
+            selectedPath = '';
+            clearTerminal();
+            showEmptyState();
+            document.title = 'logtail';
+          } else {
+            hideEmptyState();
+            selectedPath = msg.path;
+            pathSelect.value = msg.path;
+            document.title = 'logtail — ' + msg.path;
+            clearTerminal();
+            appendText(msg.data);
+          }
+        } else if (msg.type === 'paths') {
+          const current = selectedPath;
+          pathSelect.innerHTML = '';
+          msg.paths.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            pathSelect.appendChild(opt);
+          });
+          if (msg.paths.length === 0) {
+            selectedPath = '';
+            clearTerminal();
+            showEmptyState();
+            document.title = 'logtail';
+          } else if (current && msg.paths.includes(current)) {
+            pathSelect.value = current;
+          } else if (current && !msg.paths.includes(current)) {
+            selectedPath = '';
+            clearTerminal();
+            showEmptyState();
+            document.title = 'logtail';
+          }
+        } else if (msg.type === 'append') {
+          if (msg.path === selectedPath) {
+            appendText(msg.data);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        dot.classList.add('disconnected');
+        setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
