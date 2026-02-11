@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>logtail</title>
+  <title>ralph-logs</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -59,6 +59,7 @@
       overflow-y: auto;
       display: flex;
       justify-content: center;
+      padding-top: 1.4em;
     }
     #terminal {
       width: 160ch;
@@ -125,7 +126,6 @@
     function showEmptyState() {
       emptyState.style.display = 'block';
       terminal.style.display = 'none';
-      pathSelect.style.display = pathSelect.options.length ? '' : 'none';
       lineCount.textContent = '';
     }
 
@@ -174,7 +174,7 @@
       selectedPath = pathSelect.value;
       hideEmptyState();
       clearTerminal();
-      document.title = 'logtail — ' + selectedPath;
+      document.title = 'ralph-logs — ' + selectedPath;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'select', path: selectedPath }));
       }
@@ -193,6 +193,13 @@
         if (msg.type === 'init') {
           if (msg.paths) {
             pathSelect.innerHTML = '';
+            if (msg.paths.length) {
+              const placeholder = document.createElement('option');
+              placeholder.value = '';
+              placeholder.textContent = 'select a log\u2026';
+              placeholder.disabled = true;
+              pathSelect.appendChild(placeholder);
+            }
             msg.paths.forEach(p => {
               const opt = document.createElement('option');
               opt.value = p;
@@ -204,36 +211,40 @@
             selectedPath = '';
             clearTerminal();
             showEmptyState();
-            document.title = 'logtail';
+            document.title = 'ralph-logs';
           } else {
             hideEmptyState();
             selectedPath = msg.path;
             pathSelect.value = msg.path;
-            document.title = 'logtail — ' + msg.path;
+            document.title = 'ralph-logs — ' + msg.path;
             clearTerminal();
             appendText(msg.data);
           }
         } else if (msg.type === 'paths') {
           const current = selectedPath;
           pathSelect.innerHTML = '';
+          if (msg.paths.length) {
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'select a log\u2026';
+            placeholder.disabled = true;
+            pathSelect.appendChild(placeholder);
+          }
           msg.paths.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p;
             opt.textContent = p;
             pathSelect.appendChild(opt);
           });
-          if (msg.paths.length === 0) {
-            selectedPath = '';
-            clearTerminal();
-            showEmptyState();
-            document.title = 'logtail';
-          } else if (current && msg.paths.includes(current)) {
+          pathSelect.style.display = msg.paths.length ? '' : 'none';
+          if (current && msg.paths.includes(current)) {
             pathSelect.value = current;
-          } else if (current && !msg.paths.includes(current)) {
+          } else {
+            pathSelect.value = '';
             selectedPath = '';
             clearTerminal();
             showEmptyState();
-            document.title = 'logtail';
+            document.title = 'ralph-logs';
           }
         } else if (msg.type === 'append') {
           if (msg.path === selectedPath) {

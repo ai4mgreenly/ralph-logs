@@ -1,12 +1,12 @@
-RALPH_LOGS ?= /home/ai4mgreenly/projects/ikigai-5/
+RALPH_DIR ?= $(HOME)/.local/state/ralph
 
-ralph-logs: main.go
+ralph-logs: main.go index.html favicon.svg
 	go build -o ralph-logs .
 
 run: ralph-logs
 	./ralph-logs 4000 \
-		'$(RALPH_LOGS)/.ralphs/mgreenly/ikigai/*/.pipeline/cache/ralph.log' \
-		'$(RALPH_LOGS)/.pipeline/cache/orchestrator.log'
+		'$(RALPH_DIR)/logs/ralph-runs.log' \
+		'$(RALPH_DIR)/clones/mgreenly/ikigai/*/.pipeline/cache/ralph.log'
 
 clean:
 	rm -f ralph-logs
