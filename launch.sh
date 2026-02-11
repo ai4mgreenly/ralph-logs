@@ -1,4 +1,6 @@
 #!/bin/sh
+RALPH_DIR="${RALPH_DIR:-$HOME/.local/state/ralph}"
+
 ./logtail 4000 \
-  '/home/ai4mgreenly/projects/ikigai-5/.ralphs/mgreenly/ikigai/*/.pipeline/cache/ralph.log' \
-  '/home/ai4mgreenly/projects/ikigai-5/.pipeline/cache/orchestrator.log'
+  "$RALPH_DIR/logs/ralph-runs.log" \
+  "$RALPH_DIR/clones/mgreenly/ikigai/*/.pipeline/cache/ralph.log"

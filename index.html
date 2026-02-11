@@ -125,7 +125,7 @@
     function showEmptyState() {
       emptyState.style.display = 'block';
       terminal.style.display = 'none';
-      pathSelect.style.display = 'none';
+      pathSelect.style.display = pathSelect.options.length ? '' : 'none';
       lineCount.textContent = '';
     }
 
