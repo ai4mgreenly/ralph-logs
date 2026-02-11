@@ -50,3 +50,25 @@ The file is now present and verified with the correct content. (+5s / 29s) [6.5%
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 13
+  Tool Uses: 5
+
+  Tokens:
+    Input: 97
+    Output: 21
+    Cache Read: 150,351
+    Cache Create: 11,266
+    Total: 161,735
+
+  Cost: $0.0880
+
+  Time:
+    LLM: 28s
+    Tools: 1s
+    Other: 3s
+    Total: 33s
+══════════════════════════════════════════════════════════════════════
+
