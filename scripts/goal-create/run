@@ -1,0 +1,122 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+#
+# scripts/goal-create - Create a pipeline goal as a GitHub Issue
+#
+# Reads goal body from stdin. Metadata via flags.
+#
+# Usage: goal-create --story <number> --title "..." [--repo OWNER/REPO] [--spot-check] [--depends "N,M"] < body.md
+#
+# Output: JSON {"ok": true, "number": <issue-number>}
+# Exit code: 0 on success, 1 on failure
+#
+
+require 'json'
+require 'optparse'
+
+def main
+  story = nil
+  title = nil
+  spot_check = false
+  depends = nil
+  nwo = nil
+
+  OptionParser.new do |opts|
+    opts.banner = <<~HELP
+      Usage: goal-create --story <number> --title "..." [--repo OWNER/REPO] [--spot-check] [--depends "N,M"] < body.md
+
+      Create a pipeline goal as a GitHub Issue. Body is read from stdin.
+
+      Flags:
+        --story <number>    Parent story issue number (required)
+        --title "..."       Goal title (required)
+        --repo OWNER/REPO   GitHub repo (optional)
+        --spot-check        Flag goal for human smoke test before PR
+        --depends "N,M"     Goal numbers this depends on (optional)
+
+      Output:
+        JSON {"ok": true, "number": <issue-number>}
+
+      Examples:
+        echo "## Objective\\nDo the thing" | goal-create --story 0 --title "Add X"
+        echo "## Objective\\nDo the thing" | goal-create --story 0 --title "Add X" --repo mgreenly/ikigai
+    HELP
+
+    opts.on('--story=N', Integer, 'Parent story number') { |n| story = n }
+    opts.on('--title=TITLE', 'Goal title') { |t| title = t }
+    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
+    opts.on('--spot-check', 'Flag for human smoke test') { spot_check = true }
+    opts.on('--depends=DEPS', 'Dependency goal numbers (comma-separated)') { |d| depends = d }
+  end.parse!
+
+  unless story
+    puts JSON.generate(ok: false, items: ['--story is required'])
+    exit 1
+  end
+
+  unless title
+    puts JSON.generate(ok: false, items: ['--title is required'])
+    exit 1
+  end
+
+  # Read body from stdin
+  if $stdin.tty?
+    puts JSON.generate(ok: false, items: ['body must be provided on stdin'])
+    exit 1
+  end
+
+  body = $stdin.read.strip
+
+  if body.empty?
+    puts JSON.generate(ok: false, items: ['body is empty'])
+    exit 1
+  end
+
+  # Prepend story reference
+  body = "Story: ##{story}\n\n#{body}"
+
+  # Append depends reference if provided
+  if depends
+    dep_refs = depends.split(',').map(&:strip).map { |d| "##{d.delete('#')}" }.join(', ')
+    body = "#{body}\n\nDepends: #{dep_refs}"
+  end
+
+  # Build labels
+  labels = %w[pipeline goal goal:draft]
+  labels << 'spot-check' if spot_check
+
+  # Create GitHub Issue
+  cmd = [
+    'gh', 'issue', 'create',
+    '--title', title,
+    '--body', body,
+    '--label', labels.join(',')
+  ]
+  cmd += ['--repo', nwo] if nwo
+
+  stdout = IO.popen(cmd, err: '/dev/null', &:read)
+
+  if $?.exitstatus != 0
+    puts JSON.generate(ok: false, items: ['gh issue create failed'])
+    exit 1
+  end
+
+  number = stdout.strip.split('/').last.to_i
+
+  unless number > 0
+    puts JSON.generate(ok: false, items: ['could not parse issue number from gh output'])
+    exit 1
+  end
+
+  puts JSON.generate(ok: true, number: number)
+  exit 0
+end
+
+if __FILE__ == $PROGRAM_NAME
+  begin
+    main
+  rescue Interrupt
+    exit 130
+  end
+end

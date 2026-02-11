@@ -1,6 +1,7 @@
 {
   "preload": [
-    "jj"
+    "jj",
+    "pipeline"
   ],
   "advertise": []
 }

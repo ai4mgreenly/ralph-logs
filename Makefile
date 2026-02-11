@@ -6,7 +6,7 @@ ralph-logs: main.go index.html favicon.svg
 run: ralph-logs
 	./ralph-logs 4000 \
 		'$(RALPH_DIR)/logs/ralph-runs.log' \
-		'$(RALPH_DIR)/clones/mgreenly/ikigai/*/.pipeline/cache/ralph.log'
+		'$(RALPH_DIR)/clones/*/*/*/.pipeline/cache/ralph.log'
 
 clean:
 	rm -f ralph-logs
