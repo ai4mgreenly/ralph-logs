@@ -145,6 +145,7 @@
     });
 
     function clearTerminal() {
+      console.log('[ralph-logs] clearTerminal() called');
       terminal.textContent = '';
       lines = 0;
       lineCount.textContent = '0 lines';
@@ -190,6 +191,7 @@
 
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
+        console.log('[ralph-logs] WebSocket message:', msg.type, 'path:', msg.path);
         if (msg.type === 'init') {
           if (msg.paths) {
             pathSelect.innerHTML = '';
@@ -251,6 +253,7 @@
             appendText(msg.data);
           }
         } else if (msg.type === 'reset') {
+          console.log('[ralph-logs] reset message - msg.path:', msg.path, 'selectedPath:', selectedPath, 'match:', msg.path === selectedPath);
           if (msg.path === selectedPath) {
             clearTerminal();
           }
