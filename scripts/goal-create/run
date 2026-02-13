@@ -2,115 +2,95 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-create - Create a pipeline goal as a GitHub Issue
+# scripts/goal-create - Create a pipeline goal via ralph-plans API
 #
 # Reads goal body from stdin. Metadata via flags.
 #
-# Usage: goal-create --story <number> --title "..." [--repo OWNER/REPO] [--spot-check] [--depends "N,M"] < body.md
+# Usage: goal-create --title "..." --org ORG --repo REPO [--review] < body.md
 #
-# Output: JSON {"ok": true, "number": <issue-number>}
+# Output: JSON {"ok": true, "id": <goal-id>}
 # Exit code: 0 on success, 1 on failure
 #
 
 require 'json'
+require 'net/http'
 require 'optparse'
 
+RALPH_PLANS_HOST = ENV.fetch('RALPH_PLANS_HOST')
+RALPH_PLANS_PORT = ENV.fetch('RALPH_PLANS_PORT')
+
 def main
-  story = nil
   title = nil
-  spot_check = false
-  depends = nil
-  nwo = nil
+  org = nil
+  repo = nil
+  review = false
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-create --story <number> --title "..." [--repo OWNER/REPO] [--spot-check] [--depends "N,M"] < body.md
+      Usage: goal-create --title "..." --org ORG --repo REPO [--review] < body.md
 
-      Create a pipeline goal as a GitHub Issue. Body is read from stdin.
+      Create a pipeline goal. Body is read from stdin.
 
       Flags:
-        --story <number>    Parent story issue number (required)
         --title "..."       Goal title (required)
-        --repo OWNER/REPO   GitHub repo (optional)
-        --spot-check        Flag goal for human smoke test before PR
-        --depends "N,M"     Goal numbers this depends on (optional)
+        --org ORG           Organization (required)
+        --repo REPO         Repository name (required)
+        --review            Flag goal for human review before done
 
       Output:
-        JSON {"ok": true, "number": <issue-number>}
+        JSON {"ok": true, "id": <goal-id>}
 
       Examples:
-        echo "## Objective\\nDo the thing" | goal-create --story 0 --title "Add X"
-        echo "## Objective\\nDo the thing" | goal-create --story 0 --title "Add X" --repo mgreenly/ikigai
+        echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai
+        echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai --review
     HELP
 
-    opts.on('--story=N', Integer, 'Parent story number') { |n| story = n }
     opts.on('--title=TITLE', 'Goal title') { |t| title = t }
-    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
-    opts.on('--spot-check', 'Flag for human smoke test') { spot_check = true }
-    opts.on('--depends=DEPS', 'Dependency goal numbers (comma-separated)') { |d| depends = d }
+    opts.on('--org=ORG', 'Organization') { |o| org = o }
+    opts.on('--repo=REPO', 'Repository name') { |r| repo = r }
+    opts.on('--review', 'Flag for human review') { review = true }
   end.parse!
 
-  unless story
-    puts JSON.generate(ok: false, items: ['--story is required'])
+  unless title
+    puts JSON.generate(ok: false, error: '--title is required')
     exit 1
   end
 
-  unless title
-    puts JSON.generate(ok: false, items: ['--title is required'])
+  unless org
+    puts JSON.generate(ok: false, error: '--org is required')
+    exit 1
+  end
+
+  unless repo
+    puts JSON.generate(ok: false, error: '--repo is required')
     exit 1
   end
 
   # Read body from stdin
   if $stdin.tty?
-    puts JSON.generate(ok: false, items: ['body must be provided on stdin'])
+    puts JSON.generate(ok: false, error: 'body must be provided on stdin')
     exit 1
   end
 
   body = $stdin.read.strip
 
   if body.empty?
-    puts JSON.generate(ok: false, items: ['body is empty'])
+    puts JSON.generate(ok: false, error: 'body is empty')
     exit 1
   end
 
-  # Prepend story reference
-  body = "Story: ##{story}\n\n#{body}"
+  # POST to ralph-plans API
+  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals")
+  payload = { org: org, repo: repo, title: title, body: body, review: review }
 
-  # Append depends reference if provided
-  if depends
-    dep_refs = depends.split(',').map(&:strip).map { |d| "##{d.delete('#')}" }.join(', ')
-    body = "#{body}\n\nDepends: #{dep_refs}"
-  end
+  resp = Net::HTTP.post(uri, JSON.generate(payload), 'Content-Type' => 'application/json')
+  result = JSON.parse(resp.body)
 
-  # Build labels
-  labels = %w[pipeline goal goal:draft]
-  labels << 'spot-check' if spot_check
-
-  # Create GitHub Issue
-  cmd = [
-    'gh', 'issue', 'create',
-    '--title', title,
-    '--body', body,
-    '--label', labels.join(',')
-  ]
-  cmd += ['--repo', nwo] if nwo
-
-  stdout = IO.popen(cmd, err: '/dev/null', &:read)
-
-  if $?.exitstatus != 0
-    puts JSON.generate(ok: false, items: ['gh issue create failed'])
-    exit 1
-  end
-
-  number = stdout.strip.split('/').last.to_i
-
-  unless number > 0
-    puts JSON.generate(ok: false, items: ['could not parse issue number from gh output'])
-    exit 1
-  end
-
-  puts JSON.generate(ok: true, number: number)
-  exit 0
+  puts JSON.generate(result)
+  exit(result['ok'] ? 0 : 1)
+rescue Errno::ECONNREFUSED
+  puts JSON.generate(ok: false, error: "cannot connect to ralph-plans at #{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}")
+  exit 1
 end
 
 if __FILE__ == $PROGRAM_NAME

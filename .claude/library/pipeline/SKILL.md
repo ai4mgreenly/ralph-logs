@@ -1,23 +1,17 @@
 ---
 name: pipeline
-description: Pipeline commands for managing stories and goals
+description: Pipeline commands for creating and managing goals
 ---
 
 # Pipeline
 
-Continuous development pipeline. Stories describe features, goals are executable units of work. All scripts return JSON (`{"ok": true/false, ...}`).
-
-All commands accept `--repo OWNER/REPO` to target an external repository.
-
-**Trial/Debug Mode:** Currently all goals use `--story 0` to disable story tracking. Goals are standalone during this phase.
+Autonomous development pipeline. Goals are executable units of work. Ralph (the agent loop) picks up queued goals, executes them in isolated clones, and creates pull requests from the results. All goal scripts return JSON (`{"ok": true/false, ...}`).
 
 ## Flow
 
 ```
-Story (human writes) → Goals (decomposed) → Queue → Ralph executes → PR merges
+Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph executes → PR merges
 ```
-
-**Current:** Goals bypass story mechanism (`--story 0`) during trial/debug phase.
 
 ## Default Workflow: Goals-First
 
@@ -25,64 +19,73 @@ Story (human writes) → Goals (decomposed) → Queue → Ralph executes → PR 
 
 **Standard workflow:**
 
-1. **Discuss** - User and Claude discuss the change and approach
-2. **Create goal** - Claude creates the goal with clear acceptance criteria
-3. **Queue immediately** - Goal is queued right after creation (default behavior)
-4. **Ralph executes** - User runs Ralph to execute the goal autonomously
-5. **PR merges** - Completed work is merged via PR
+1. **Discuss** — User and Claude discuss the change and approach
+2. **Create goal** — Claude creates the goal with clear acceptance criteria
+3. **Queue immediately** — Goal is queued right after creation (default behavior)
+4. **Ralph executes** — The orchestrator picks up the goal and runs it autonomously
+5. **PR merges** — Completed work is merged via PR
 
 **Default behaviors:**
 
-- **Always queue after creation** - No manual testing or "trying it first" unless user explicitly requests it
-- **No spot-check** - Goals do not use `--spot-check` flag unless user explicitly requests it during goal preparation
-- **No local changes** - Claude does not make local changes directly; work goes through Ralph
+- **Always queue after creation** — No manual testing or "trying it first" unless user explicitly requests it
+- **No local changes** — Claude does not make local changes directly; work goes through Ralph
 
 **When to make local changes (exceptions only):**
 
 - User explicitly requests direct changes: "make this change now", "edit this file", "fix this directly"
 - User explicitly says: "don't create a goal for this", "do this locally", "make this change here"
-- User specifies exceptions during goal preparation phase
 
 **If unsure:** Default to creating and queuing a goal. The user will specify if they want an exception.
 
 ## Goal Statuses
 
-`draft` → `queued` → `running` → `spot-check` or `done` (or `stuck`)
-
-## Story Commands
-
-| Command | Usage | Does |
-|---------|-------|------|
-| `story-create` | `--title "..." [--repo O/R] < body.md` | Create story |
-| `story-list` | `[--repo O/R] [--state open\|closed\|all]` | List stories |
-| `story-get` | `[--repo O/R] <number>` | Read story + linked goals |
+`draft` → `queued` → `running` → `done` (or `stuck` or `reviewing`)
 
 ## Goal Commands
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--story <N> --title "..." [--repo O/R] [--spot-check] [--depends "N,M"] < body.md` | Create goal (draft) |
-| `goal-list` | `[--repo O/R] [status]` | List goals, optionally by status |
-| `goal-get` | `[--repo O/R] <number>` | Read goal body + status |
-| `goal-queue` | `[--repo O/R] <number>` | Transition draft → queued |
-| `goal-spot-check` | `[--repo O/R] <number> approve\|reject [--feedback "..."]` | Approve/reject after smoke test |
+| `goal-create` | `--title "..." --org ORG --repo REPO [--review] < body.md` | Create goal (draft). Body via stdin. |
+| `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
+| `goal-get` | `<id>` | Read goal body + status |
+| `goal-queue` | `<id>` | Transition draft → queued |
+| `goal-cancel` | `<id>` | Cancel a non-terminal goal |
+| `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Manage review state |
 
-## Invocation
-
-Scripts live in `scripts/<name>/run` with symlinks in `bin/`:
+## Creating a Goal
 
 ```bash
-bin/goal-list queued --repo mgreenly/ikigai
-bin/goal-get 42 --repo mgreenly/ikigai
-echo "## Objective\n..." | bin/goal-create --story 0 --title "Add X" --repo mgreenly/ikigai
+cat <<'EOF' | goal-create --title "Add feature X" --org myorg --repo myrepo
+## Objective
+What should be accomplished.
+
+## Reference
+Relevant files, docs, and examples.
+
+## Outcomes
+Measurable, verifiable results.
+
+## Acceptance
+Success criteria.
+EOF
 ```
 
-**Note:** During trial/debug phase, always use `--story 0` when creating goals.
+Then queue it:
 
-## Logs
+```bash
+goal-queue <id>
+```
 
-- **Orchestrator log**: `~/.local/state/ralph/logs/ralph-runs.log`
-- **Ralph logs**: `~/.local/state/ralph/clones/<org>/<repo>/<number>/.pipeline/cache/ralph.log`
+## Review Goals
+
+**Never add `--review` unless the user explicitly requests it.** The default is auto-merge. Only the user decides when a goal needs human review — do not add `--review` based on your own judgment about risk or complexity.
+
+Pass `--review` to `goal-create` to require human review before the goal is marked done. After Ralph finishes, the goal enters `reviewing` state instead of `done`.
+
+```bash
+goal-spot-check <id> approve           # reviewing → done
+goal-spot-check <id> reject --feedback "Widget doesn't render"  # reviewing → queued (retries)
+```
 
 ## Goal Authoring
 
@@ -96,9 +99,6 @@ Goal bodies **must** follow the `goal-authoring` skill guidelines (`/load goal-a
 
 ## Key Rules
 
-- **Body via stdin** -- `goal-create` and `story-create` read body from stdin
-- **Trial/debug mode** -- Use `--story 0` for all goals during trial/debug phase; stories are disabled
-- Goals reference parent story via `Story: #<number>` in body (currently `Story: #0` for all goals)
-- **Dependencies** -- Goals can declare `Depends: #N, #M` in body; orchestrator waits for dependencies to reach `goal:done` before picking up the goal
-- **Story auto-close** -- When all goals for a story reach `goal:done`, the story is automatically closed (inactive during trial/debug phase)
-- **--repo flag** -- All commands accept `--repo OWNER/REPO` to target repos other than the current directory
+- **Body via stdin** — `goal-create` reads body from stdin
+- **org + repo required** — Every goal targets a specific GitHub org/repo
+- Goals go through Ralph — don't make local changes unless explicitly asked

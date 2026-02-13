@@ -211,12 +211,20 @@ func (r *registry) watch() {
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "usage: %s <port> <glob-pattern> [glob-pattern...]\n", os.Args[0])
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "usage: %s <glob-pattern> [glob-pattern...]\n", os.Args[0])
 		os.Exit(1)
 	}
-	port := os.Args[1]
-	patterns := os.Args[2:]
+	patterns := os.Args[1:]
+
+	host := os.Getenv("RALPH_LOGS_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	port := os.Getenv("RALPH_LOGS_PORT")
+	if port == "" {
+		log.Fatal("RALPH_LOGS_PORT environment variable is required")
+	}
 
 	b := newBroker()
 	reg := newRegistry(patterns, b)
@@ -286,8 +294,8 @@ func main() {
 		w.Write(data)
 	})
 
-	addr := ":" + port
-	log.Printf("serving on http://localhost%s — watching %d patterns", addr, len(patterns))
+	addr := host + ":" + port
+	log.Printf("serving on http://%s — watching %d patterns", addr, len(patterns))
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
 	}
