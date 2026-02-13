@@ -29,6 +29,11 @@ type tailer struct {
 	mu    sync.Mutex
 	buf   []byte
 	inode uint64
+	done  chan struct{}
+}
+
+func (t *tailer) stop() {
+	close(t.done)
 }
 
 type broker struct {
@@ -80,58 +85,31 @@ func (t *tailer) snapshot() []byte {
 }
 
 func startTailer(t *tailer, b *broker) {
+	t.done = make(chan struct{})
+
 	go func() {
 		var f *os.File
 		var currentInode uint64
 		var offset int64
 
+		// Wait for file to exist
 		for {
+			select {
+			case <-t.done:
+				return
+			default:
+			}
+
 			if _, err := os.Stat(t.path); err == nil {
 				break
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
 
-		openFile := func(sendReset bool) error {
-			var err error
-			f, err = os.Open(t.path)
-			if err != nil {
-				return err
-			}
-
-			stat, err := f.Stat()
-			if err != nil {
-				f.Close()
-				return err
-			}
-
-			// Get inode from stat (requires syscall)
-			if sys, ok := stat.Sys().(*syscall.Stat_t); ok {
-				currentInode = sys.Ino
-			}
-			offset = 0
-
-			// Store inode in tailer struct for registry to check
-			t.mu.Lock()
-			t.inode = currentInode
-			if sendReset {
-				// Reset buffer and notify clients
-				t.buf = nil
-			}
-			t.mu.Unlock()
-
-			if sendReset {
-				msg, _ := json.Marshal(wsMessage{Type: "reset", Path: t.path})
-				b.broadcast(msg)
-				log.Printf("reopened %s (inode %d) after file change", t.path, currentInode)
-			} else {
-				log.Printf("opened %s (inode %d)", t.path, currentInode)
-			}
-
-			return nil
-		}
-
-		if err := openFile(false); err != nil {
+		// Open the file and store its inode
+		var err error
+		f, err = os.Open(t.path)
+		if err != nil {
 			log.Printf("failed to open %s: %v", t.path, err)
 			return
 		}
@@ -141,31 +119,31 @@ func startTailer(t *tailer, b *broker) {
 			}
 		}()
 
+		stat, err := f.Stat()
+		if err != nil {
+			log.Printf("failed to stat %s: %v", t.path, err)
+			return
+		}
+
+		// Get and store inode
+		if sys, ok := stat.Sys().(*syscall.Stat_t); ok {
+			currentInode = sys.Ino
+		}
+
+		t.mu.Lock()
+		t.inode = currentInode
+		t.mu.Unlock()
+
+		log.Printf("opened %s (inode %d)", t.path, currentInode)
+
 		tmp := make([]byte, 32*1024)
 		for {
-			// Check if file was truncated or replaced
-			stat, err := os.Stat(t.path)
-			if err == nil {
-				fileSize := stat.Size()
-				var fileInode uint64
-				if sys, ok := stat.Sys().(*syscall.Stat_t); ok {
-					fileInode = sys.Ino
-				}
-
-				// Detect truncation (file size < current offset) or replacement (different inode)
-				if fileSize < offset || (fileInode != 0 && fileInode != currentInode) {
-					log.Printf("detected file change on %s (truncation: %v, replacement: %v)",
-						t.path, fileSize < offset, fileInode != currentInode)
-
-					if f != nil {
-						f.Close()
-					}
-
-					if err := openFile(true); err != nil {
-						log.Printf("failed to reopen %s: %v", t.path, err)
-						return
-					}
-				}
+			// Check if we should stop
+			select {
+			case <-t.done:
+				log.Printf("stopping tailer for %s", t.path)
+				return
+			default:
 			}
 
 			n, err := f.Read(tmp)
@@ -257,9 +235,18 @@ func (r *registry) scan() {
 		storedInode := t.inode
 		t.mu.Unlock()
 
-		// If inode changed, restart the tailer
+		// If inode changed, stop old tailer and start a new one
 		if currentInode != 0 && storedInode != 0 && currentInode != storedInode {
-			log.Printf("inode changed: %s", p)
+			log.Printf("inode changed for %s: %d -> %d", p, storedInode, currentInode)
+
+			// Stop the old tailer's goroutine
+			t.stop()
+
+			// Send reset message to clients
+			msg, _ := json.Marshal(wsMessage{Type: "reset", Path: p})
+			r.broker.broadcast(msg)
+
+			// Create and start new tailer
 			delete(r.tailers, p)
 			newTailer := &tailer{path: p}
 			r.tailers[p] = newTailer
