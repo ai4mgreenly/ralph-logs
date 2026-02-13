@@ -1,6 +1,7 @@
 #!/bin/sh
 RALPH_DIR="${RALPH_DIR:-$HOME/.local/state/ralph}"
 
-./ralph-logs 4000 \
+./ralph-logs \
   "$RALPH_DIR/logs/ralph-runs.log" \
+  "$RALPH_DIR/logs/ralph-plans.jsonl" \
   "$RALPH_DIR/clones/*/*/*/.pipeline/cache/ralph.log"

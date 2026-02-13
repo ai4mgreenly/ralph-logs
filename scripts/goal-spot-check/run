@@ -2,111 +2,87 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-spot-check - Approve or reject a goal after smoke test
+# scripts/goal-spot-check - Set, approve, or reject a goal review
 #
-# Usage: goal-spot-check [--repo OWNER/REPO] <number> approve
-#        goal-spot-check [--repo OWNER/REPO] <number> reject --feedback "..."
+# Usage: goal-spot-check <id> set
+#        goal-spot-check <id> approve
+#        goal-spot-check <id> reject --feedback "..."
 #
-# approve: swaps goal:spot-check → goal:done
-# reject:  swaps goal:spot-check → goal:queued, adds feedback as comment
-#
-# Output: JSON {"ok": true, "number": <number>}
+# Output: JSON {"ok": true}
 # Exit code: 0 on success, 1 on failure
 #
 
 require 'json'
+require 'net/http'
 require 'optparse'
 
+RALPH_PLANS_HOST = ENV.fetch('RALPH_PLANS_HOST')
+RALPH_PLANS_PORT = ENV.fetch('RALPH_PLANS_PORT')
+
 def main
-  nwo = nil
   feedback = nil
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-spot-check [--repo OWNER/REPO] <number> approve
-             goal-spot-check [--repo OWNER/REPO] <number> reject --feedback "..."
+      Usage: goal-spot-check <id> set
+             goal-spot-check <id> approve
+             goal-spot-check <id> reject --feedback "..."
 
-      Approve or reject a pipeline goal after human smoke test.
+      Manage review state for a pipeline goal.
 
       Arguments:
-        --repo OWNER/REPO   GitHub repo (optional)
-        number              GitHub Issue number (required)
-        action              One of: approve, reject (required)
+        id        Goal ID (required)
+        action    One of: set, approve, reject (required)
 
       Flags:
         --feedback "..."    Reason for rejection (required with reject)
 
       What it does:
-        approve: Removes goal:spot-check, adds goal:done.
-        reject:  Removes goal:spot-check, adds goal:queued,
-                 posts feedback as a comment for the next ralph run.
+        set:     Transitions running → reviewing.
+        approve: Transitions reviewing → done.
+        reject:  Transitions reviewing → queued, posts feedback as comment.
 
       Examples:
+        goal-spot-check 42 set
         goal-spot-check 42 approve
         goal-spot-check 42 reject --feedback "Widget doesn't render"
-        goal-spot-check 42 approve --repo mgreenly/ikigai
     HELP
 
-    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
     opts.on('--feedback=TEXT', 'Reason for rejection') { |f| feedback = f }
   end.parse!
 
-  number = ARGV[0]&.to_i
+  id = ARGV[0]&.to_i
   action = ARGV[1]
 
-  unless number && number > 0
-    puts JSON.generate(ok: false, items: ['issue number is required'])
+  unless id && id > 0
+    puts JSON.generate(ok: false, error: 'goal id is required')
     exit 1
   end
 
-  unless %w[approve reject].include?(action)
-    puts JSON.generate(ok: false, items: ['action must be approve or reject'])
+  unless %w[set approve reject].include?(action)
+    puts JSON.generate(ok: false, error: 'action must be set, approve, or reject')
     exit 1
   end
 
   if action == 'reject' && (feedback.nil? || feedback.empty?)
-    puts JSON.generate(ok: false, items: ['--feedback is required with reject'])
+    puts JSON.generate(ok: false, error: '--feedback is required with reject')
     exit 1
   end
 
-  # Remove goal:spot-check
-  cmd = ['gh', 'issue', 'edit', number.to_s, '--remove-label', 'goal:spot-check']
-  cmd += ['--repo', nwo] if nwo
-  system(*cmd, out: '/dev/null', err: '/dev/null')
+  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/review")
+  payload = { action: action }
+  payload[:feedback] = feedback if action == 'reject'
 
-  if action == 'approve'
-    cmd = ['gh', 'issue', 'edit', number.to_s, '--add-label', 'goal:done']
-    cmd += ['--repo', nwo] if nwo
-    ok = system(*cmd, out: '/dev/null', err: '/dev/null')
+  req = Net::HTTP::Patch.new(uri, 'Content-Type' => 'application/json')
+  req.body = JSON.generate(payload)
+  resp = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(req) }
+  result = JSON.parse(resp.body)
 
-    unless ok
-      puts JSON.generate(ok: false, items: ["failed to update labels on ##{number}"])
-      exit 1
-    end
-
-    story_try_close = File.join(File.dirname(File.realpath(__FILE__)), '..', 'story-try-close', 'run')
-    stc_cmd = [story_try_close, number.to_s]
-    stc_cmd += ['--repo', nwo] if nwo
-    system(*stc_cmd, out: '/dev/null', err: '/dev/null')
-  else
-    # Re-queue
-    cmd = ['gh', 'issue', 'edit', number.to_s, '--add-label', 'goal:queued']
-    cmd += ['--repo', nwo] if nwo
-    ok = system(*cmd, out: '/dev/null', err: '/dev/null')
-
-    unless ok
-      puts JSON.generate(ok: false, items: ["failed to update labels on ##{number}"])
-      exit 1
-    end
-
-    # Post feedback as comment
-    cmd = ['gh', 'issue', 'comment', number.to_s, '--body', "Spot-check rejected:\n\n#{feedback}"]
-    cmd += ['--repo', nwo] if nwo
-    system(*cmd, out: '/dev/null', err: '/dev/null')
-  end
-
-  puts JSON.generate(ok: true, number: number)
-  exit 0
+  puts JSON.generate(result)
+  exit(result['ok'] ? 0 : 1)
+rescue Errno::ECONNREFUSED
+  puts JSON.generate(ok: false, error: "cannot connect to ralph-plans at #{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}")
+  exit 1
 end
 
 if __FILE__ == $PROGRAM_NAME
