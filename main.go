@@ -25,9 +25,10 @@ var upgrader = websocket.Upgrader{
 }
 
 type tailer struct {
-	path string
-	mu   sync.Mutex
-	buf  []byte
+	path  string
+	mu    sync.Mutex
+	buf   []byte
+	inode uint64
 }
 
 type broker struct {
@@ -110,12 +111,16 @@ func startTailer(t *tailer, b *broker) {
 			}
 			offset = 0
 
+			// Store inode in tailer struct for registry to check
+			t.mu.Lock()
+			t.inode = currentInode
 			if sendReset {
 				// Reset buffer and notify clients
-				t.mu.Lock()
 				t.buf = nil
-				t.mu.Unlock()
+			}
+			t.mu.Unlock()
 
+			if sendReset {
 				msg, _ := json.Marshal(wsMessage{Type: "reset", Path: t.path})
 				b.broadcast(msg)
 				log.Printf("reopened %s (inode %d) after file change", t.path, currentInode)
@@ -231,6 +236,34 @@ func (r *registry) scan() {
 		if _, exists := matchSet[p]; !exists {
 			delete(r.tailers, p)
 			log.Printf("removed: %s", p)
+			changed = true
+		}
+	}
+
+	// Check for inode changes on existing files
+	for p, t := range r.tailers {
+		stat, err := os.Stat(p)
+		if err != nil {
+			// File disappeared between glob and stat, will be caught in next scan
+			continue
+		}
+
+		var currentInode uint64
+		if sys, ok := stat.Sys().(*syscall.Stat_t); ok {
+			currentInode = sys.Ino
+		}
+
+		t.mu.Lock()
+		storedInode := t.inode
+		t.mu.Unlock()
+
+		// If inode changed, restart the tailer
+		if currentInode != 0 && storedInode != 0 && currentInode != storedInode {
+			log.Printf("inode changed: %s", p)
+			delete(r.tailers, p)
+			newTailer := &tailer{path: p}
+			r.tailers[p] = newTailer
+			startTailer(newTailer, r.broker)
 			changed = true
 		}
 	}
