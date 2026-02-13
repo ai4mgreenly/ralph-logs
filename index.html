@@ -250,6 +250,10 @@
           if (msg.path === selectedPath) {
             appendText(msg.data);
           }
+        } else if (msg.type === 'reset') {
+          if (msg.path === selectedPath) {
+            clearTerminal();
+          }
         }
       };
 
