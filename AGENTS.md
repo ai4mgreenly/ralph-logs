@@ -54,7 +54,6 @@ Goal management scripts live in `scripts/goal-*/run` (Ruby, return JSON). Symlin
 | `goal-cancel` | Cancel a goal |
 | `goal-comment` | Add a comment to a goal |
 | `goal-comments` | List comments on a goal |
-| `goal-spot-check` | Spot-check a goal |
 
 ## Development
 
