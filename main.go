@@ -29,6 +29,7 @@ type tailer struct {
 	mu    sync.Mutex
 	buf   []byte
 	inode uint64
+	done  chan struct{}
 }
 
 type broker struct {
@@ -86,6 +87,11 @@ func startTailer(t *tailer, b *broker) {
 
 		// Wait for file to exist
 		for {
+			select {
+			case <-t.done:
+				return
+			default:
+			}
 			if _, err := os.Stat(t.path); err == nil {
 				break
 			}
@@ -120,6 +126,12 @@ func startTailer(t *tailer, b *broker) {
 
 		tmp := make([]byte, 32*1024)
 		for {
+			select {
+			case <-t.done:
+				f.Close()
+				return
+			default:
+			}
 			n, err := f.Read(tmp)
 			if n > 0 {
 				chunk := make([]byte, n)
@@ -229,6 +241,7 @@ func (r *registry) scan() {
 	// Remove tailers for files that no longer exist
 	for p := range r.tailers {
 		if _, exists := matchSet[p]; !exists {
+			close(r.tailers[p].done)
 			delete(r.tailers, p)
 			log.Printf("removed: %s", p)
 			changed = true
@@ -238,7 +251,7 @@ func (r *registry) scan() {
 	// Add tailers for new files
 	for _, p := range matches {
 		if _, exists := r.tailers[p]; !exists {
-			t := &tailer{path: p}
+			t := &tailer{path: p, done: make(chan struct{})}
 			r.tailers[p] = t
 			startTailer(t, r.broker)
 			log.Printf("discovered: %s", p)
