@@ -45,13 +45,15 @@ Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph exec
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md` | Create goal (draft). Body via stdin. Optional: model (haiku/sonnet/opus), reasoning (none/low/med/high). |
+| `goal-create` | `--title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md` | Create goal (draft). Body via stdin. Only include `--model` or `--reasoning` when user explicitly requests them for that specific goal. |
 | `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
 | `goal-get` | `<id>` | Read goal body + status |
 | `goal-queue` | `<id>` | Transition draft → queued |
 | `goal-cancel` | `<id>` | Cancel a non-terminal goal |
 
 ## Creating a Goal
+
+**Default** — omit `--model` and `--reasoning` flags entirely, letting the orchestrator use its defaults:
 
 ```bash
 cat <<'EOF' | goal-create --title "Add feature X" --org myorg --repo myrepo
@@ -69,7 +71,7 @@ Success criteria.
 EOF
 ```
 
-With optional model and reasoning:
+**Only when the user explicitly requests a specific model or reasoning level for a particular goal:**
 
 ```bash
 cat <<'EOF' | goal-create --title "Complex refactor" --org myorg --repo myrepo --model opus --reasoning high
