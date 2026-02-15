@@ -23,10 +23,12 @@ def main
   title = nil
   org = nil
   repo = nil
+  model = nil
+  reasoning = nil
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-create --title "..." --org ORG --repo REPO < body.md
+      Usage: goal-create --title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md
 
       Create a pipeline goal. Body is read from stdin.
 
@@ -34,17 +36,22 @@ def main
         --title "..."       Goal title (required)
         --org ORG           Organization (required)
         --repo REPO         Repository name (required)
+        --model MODEL       Model to use (optional: haiku, sonnet, opus)
+        --reasoning LEVEL   Reasoning level (optional: none, low, med, high)
 
       Output:
         JSON {"ok": true, "id": <goal-id>}
 
       Examples:
         echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai
+        echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai --model opus --reasoning high
     HELP
 
     opts.on('--title=TITLE', 'Goal title') { |t| title = t }
     opts.on('--org=ORG', 'Organization') { |o| org = o }
     opts.on('--repo=REPO', 'Repository name') { |r| repo = r }
+    opts.on('--model=MODEL', 'Model (haiku, sonnet, opus)') { |m| model = m }
+    opts.on('--reasoning=LEVEL', 'Reasoning level (none, low, med, high)') { |l| reasoning = l }
   end.parse!
 
   unless title
@@ -59,6 +66,17 @@ def main
 
   unless repo
     puts JSON.generate(ok: false, error: '--repo is required')
+    exit 1
+  end
+
+  # Validate optional flags
+  if model && !%w[haiku sonnet opus].include?(model)
+    puts JSON.generate(ok: false, error: "--model must be one of: haiku, sonnet, opus (got: #{model})")
+    exit 1
+  end
+
+  if reasoning && !%w[none low med high].include?(reasoning)
+    puts JSON.generate(ok: false, error: "--reasoning must be one of: none, low, med, high (got: #{reasoning})")
     exit 1
   end
 
@@ -78,6 +96,8 @@ def main
   # POST to ralph-plans API
   uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals")
   payload = { org: org, repo: repo, title: title, body: body }
+  payload[:model] = model if model
+  payload[:reasoning] = reasoning if reasoning
 
   resp = Net::HTTP.post(uri, JSON.generate(payload), 'Content-Type' => 'application/json')
   result = JSON.parse(resp.body)

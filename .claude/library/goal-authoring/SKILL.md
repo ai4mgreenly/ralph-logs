@@ -99,6 +99,29 @@ Discover all hardcoded /usr/local/etc path references in src/ and update them to
 
 Why explicit discovery matters: Objective starts with "Discover", first outcome confirms discovery happened. Ralph won't skip the grep step.
 
+## Optional: Model and Reasoning
+
+`goal-create` accepts optional `--model` and `--reasoning` flags. **Most goals do not need these.**
+
+**When to specify model:**
+- Complex refactors requiring deep codebase understanding → `--model opus`
+- Large-scale changes across many files → `--model opus`
+- Default (sonnet) is sufficient for most work
+
+**When to specify reasoning:**
+- Goals requiring careful logical planning → `--reasoning high`
+- Tricky bug fixes with subtle edge cases → `--reasoning med` or `--reasoning high`
+- Default (no reasoning) is sufficient for straightforward work
+
+**Examples:**
+```bash
+# Standard goal - no flags needed
+goal-create --title "Add validation" --org x --repo y < body.md
+
+# Complex architectural change
+goal-create --title "Refactor parser" --org x --repo y --model opus --reasoning high < body.md
+```
+
 ## Anti-Patterns
 
 - **Step-by-step instructions** — "First do X, then Y" (Ralph discovers path)
