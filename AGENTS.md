@@ -1,8 +1,8 @@
-# ralph-shows
+# ralph-logs
 
-Lightweight dashboard for the Ralph pipeline. Displays the current state of goals managed by ralph-plans — what's running, queued, done, cancelled, and in draft. A static Preact SPA that polls the ralph-plans API.
+Real-time log streaming dashboard for the Ralph pipeline. Tails log files across the Ralph system and broadcasts updates to browser clients over WebSocket. A single Go binary — no framework, no dependencies beyond gorilla/websocket.
 
-Philosophy: deliberately minimalist. Preact + Signals, no CSS framework, no build toolchain beyond Deno.
+Philosophy: deliberately minimalist. Embed the HTML, tail the files, broadcast the bytes.
 
 ## Architecture
 
@@ -11,31 +11,46 @@ Part of a multi-service system:
 | Service | Language | Port | Purpose |
 |---------|----------|------|---------|
 | **ralph-plans** | Go + SQLite | 5001 | Goal storage and state machine |
-| **ralph-shows** | Deno + Preact | 5000 | This project — Web UI dashboard |
+| **ralph-shows** | Deno + Preact | 5000 | Web UI dashboard |
 | **ralph-runs** | Ruby | 5002 | Orchestrator + agent loop |
-| **ralph-logs** | Go | 5003 | Real-time log streaming |
+| **ralph-logs** | Go | 5003 | This project — Real-time log streaming |
 | **ralph-counts** | Python | 5004 | Metrics dashboard |
 
 ### How It Works
 
-The dashboard is a static SPA that polls `GET /goals?status=<status>` on ralph-plans every 5 seconds. No auth — both services are localhost-only.
+The server accepts glob patterns as CLI args, discovers matching log files, and tails them. A registry rescans every 2 seconds for new/removed files. Each tailer detects inode changes (log rotation) and seamlessly switches to the new file. Browser clients connect via WebSocket and receive live updates.
 
 ### Source Layout
 
 ```
-src/
-├── main.tsx          # Mount Preact app into #app
-├── app.tsx           # Top-level App component, starts polling
-├── api.ts            # Fetch wrapper for ralph-plans API
-├── state.ts          # Preact Signals for goals + polling logic
-└── components/
-    ├── running.tsx    # Running goals section
-    ├── queued.tsx     # Queued goals section
-    ├── done.tsx       # Done goals section
-    ├── cancelled.tsx  # Cancelled goals section
-    ├── draft.tsx      # Draft goals section
-    └── goal-detail.tsx # Goal detail view
+ralph-logs/
+├── main.go              # Everything: tailer, broker, registry, HTTP server
+├── index.html           # Browser UI (embedded, dark theme, monospace)
+├── favicon.svg          # Embedded favicon
+├── go.mod               # Single dependency: gorilla/websocket
+├── Makefile             # Build and run targets
+├── launch.sh            # Entry point for production
+├── scripts/
+│   ├── bin/             # Symlinks to goal scripts (on PATH)
+│   └── goal-*/run       # Goal state management scripts
+├── .claude/
+│   ├── library/         # Skills (modular instruction sets)
+│   └── skillsets/       # Composite skill bundles
+├── .envrc               # direnv config
+└── AGENTS.md            # This file
 ```
+
+### WebSocket Protocol
+
+Messages are JSON with a `type` field:
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `init` | server → client | Initial state: paths list + selected file content |
+| `append` | server → client | New data appended to a file |
+| `reset` | server → client | File rotated (inode changed), buffer cleared |
+| `paths` | server → client | Watched file list changed |
+| `select` | client → server | Client requests content of a specific file |
 
 ### Goal Scripts
 
@@ -59,19 +74,17 @@ Goal management scripts live in `scripts/goal-*/run` (Ruby, return JSON). Symlin
 
 ### Tech Stack
 
-- **Deno** runtime + TypeScript
-- **Preact** with JSX (`react-jsx` transform)
-- **@preact/signals** for reactive state
-- Static SPA bundled via `build.ts`, dev server via `dev.ts`
+- **Go** (standard library + gorilla/websocket)
+- Single binary, no external config
+- HTML/JS embedded via `go:embed`
 
 ### Commands
 
 ```sh
-deno task dev    # Bundle + serve with watch
-deno task build  # Production bundle
+make              # Build the binary
+make run          # Build and run with default log patterns
+./launch.sh       # Production entry point
 ```
-
-Or just `./launch.sh` which runs `deno task dev`.
 
 ### Version Control
 
@@ -79,41 +92,14 @@ This project uses **git**.
 
 ### Code Style
 
-- TypeScript throughout, Deno idioms
-- Preact functional components with Signals
-- Minimal inline CSS — dark theme, monospace font
+- Go standard library idioms, minimal abstraction
+- Single-file server (`main.go`)
 - Goal scripts are Ruby, return JSON: `{"ok": true/false, ...}`
 - Minimalist — no abstractions for one-time operations
 
 ### Environment
 
 Configured via `.envrc` (direnv). `PATH` includes `scripts/bin/` for direct script access. Services communicate via `RALPH_*_HOST/PORT` env vars.
-
-## Directory Structure
-
-```
-ralph-shows/
-├── src/                              # Preact SPA source
-│   ├── main.tsx                      # Entry point
-│   ├── app.tsx                       # App component
-│   ├── api.ts                        # API client
-│   ├── state.ts                      # Signals + polling
-│   └── components/                   # UI components
-├── scripts/
-│   ├── bin/                          # Symlinks to goal scripts (on PATH)
-│   └── goal-*/run                    # Goal state management scripts
-├── dist/                             # Built output
-├── index.html                        # HTML shell
-├── build.ts                          # Build script
-├── dev.ts                            # Dev server
-├── deno.json                         # Tasks, imports, compiler options
-├── launch.sh                         # Entry point: runs deno task dev
-├── .claude/
-│   ├── library/                      # Skills (modular instruction sets)
-│   └── skillsets/                    # Composite skill bundles
-├── .envrc                            # direnv config
-└── AGENTS.md                         # This file
-```
 
 ## Skills
 
@@ -152,13 +138,13 @@ Key principles: specify WHAT not HOW, reference liberally, make discovery explic
 
 Full guide: `.claude/library/goal-authoring/SKILL.md`
 
+When creating goals targeting this repository, use `--org ai4mgreenly --repo ralph-logs`.
+
 ## Common Tasks
 
-**Adding a component:** Create `src/components/<name>.tsx`, import in `app.tsx`.
+**Changing watched log patterns:** Edit `launch.sh` or `Makefile` — patterns are CLI args to the binary.
 
-**Adding a new goal status view:** Create component in `src/components/`, add a signal in `state.ts`, update `api.ts` if needed, wire into `app.tsx`.
-
-**Changing API base URL:** Edit `src/api.ts`.
+**Modifying the browser UI:** Edit `index.html`, rebuild with `make`.
 
 **Adding a goal command:** Create `scripts/<name>/run` (Ruby, returns JSON), symlink from `scripts/bin/<name>`.
 
