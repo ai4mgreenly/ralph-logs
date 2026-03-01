@@ -3,8 +3,7 @@ set -e
 
 RALPH_DIR="${RALPH_DIR:-$HOME/.local/state/ralph}"
 
-git fetch origin
-git reset --hard origin/main
+reset-repo
 
 go build -o ralph-logs .
 
