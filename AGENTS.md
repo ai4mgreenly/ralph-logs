@@ -4,6 +4,14 @@ Real-time log streaming dashboard for the Ralph pipeline. Tails log files across
 
 Philosophy: deliberately minimalist. Embed the HTML, tail the files, broadcast the bytes.
 
+## Workflow
+
+All code changes in this repository go through goals — never direct edits. When something needs changing, create a goal and let the pipeline execute it.
+
+The only exception: the user gives extremely explicit instructions to make changes directly. "Extremely explicit" means the user unambiguously requests a direct change — e.g. "edit this file now", "make this change locally", "don't create a goal". Ambiguity defaults to creating a goal.
+
+If you're unsure whether to make a direct change or create a goal, create a goal.
+
 ## Architecture
 
 Part of a multi-service system:
