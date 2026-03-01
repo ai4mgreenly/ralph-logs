@@ -323,7 +323,13 @@ func main() {
 		paths := reg.getPaths()
 		initPath := ""
 		initData := ""
-		if len(paths) > 0 {
+		requestedFile := r.URL.Query().Get("file")
+		if requestedFile != "" {
+			if t := reg.getTailer(requestedFile); t != nil {
+				initPath = requestedFile
+				initData = string(t.snapshot())
+			}
+		} else if len(paths) > 0 {
 			initPath = paths[0]
 			if t := reg.getTailer(initPath); t != nil {
 				initData = string(t.snapshot())

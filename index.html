@@ -173,17 +173,26 @@
 
     pathSelect.addEventListener('change', () => {
       selectedPath = pathSelect.value;
-      hideEmptyState();
-      clearTerminal();
-      document.title = 'ralph-logs — ' + selectedPath;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'select', path: selectedPath }));
+      if (selectedPath) {
+        history.replaceState(null, '', '/?file=' + encodeURIComponent(selectedPath));
+        hideEmptyState();
+        clearTerminal();
+        document.title = 'ralph-logs — ' + selectedPath;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'select', path: selectedPath }));
+        }
+      } else {
+        history.replaceState(null, '', '/');
+        showEmptyState();
+        document.title = 'ralph-logs';
       }
     });
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(proto + '//' + location.host + '/ws');
+      const fileParam = new URLSearchParams(location.search).get('file');
+      const wsURL = proto + '//' + location.host + '/ws' + (fileParam ? '?file=' + encodeURIComponent(fileParam) : '');
+      ws = new WebSocket(wsURL);
 
       ws.onopen = () => {
         dot.classList.remove('disconnected');
@@ -211,6 +220,7 @@
           }
           if (!msg.path) {
             selectedPath = '';
+            history.replaceState(null, '', '/');
             clearTerminal();
             showEmptyState();
             document.title = 'ralph-logs';
@@ -218,6 +228,7 @@
             hideEmptyState();
             selectedPath = msg.path;
             pathSelect.value = msg.path;
+            history.replaceState(null, '', '/?file=' + encodeURIComponent(msg.path));
             document.title = 'ralph-logs — ' + msg.path;
             clearTerminal();
             appendText(msg.data);
@@ -244,6 +255,7 @@
           } else {
             pathSelect.value = '';
             selectedPath = '';
+            history.replaceState(null, '', '/');
             clearTerminal();
             showEmptyState();
             document.title = 'ralph-logs';
