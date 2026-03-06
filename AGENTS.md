@@ -132,21 +132,11 @@ Composite bundles in `.claude/skillsets/<name>.json`:
 
 Available skillsets:
 
-- `meta` — For improving the .claude/ system (preloads: jj, pipeline, goal-authoring, align)
+- `meta` — For improving the .claude/ system (preloads: jj, align)
 
 ### For Ralph
 
 When Ralph executes a goal in this repo, it receives only `AGENTS.md` as project context. This file is responsible for getting Ralph everything it needs.
-
-## Goal Authoring
-
-Goals are markdown files with required sections: `## Objective`, `## Reference`, `## Outcomes`, `## Acceptance`.
-
-Key principles: specify WHAT not HOW, reference liberally, make discovery explicit, include measurable acceptance criteria, trust Ralph to iterate.
-
-Full guide: `.claude/library/goal-authoring/SKILL.md`
-
-When creating goals targeting this repository, use `--org ai4mgreenly --repo ralph-logs`.
 
 ## Common Tasks
 
