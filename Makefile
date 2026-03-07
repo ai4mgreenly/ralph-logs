@@ -8,5 +8,9 @@ run: ralph-logs
 		'$(RALPH_DIR)/logs/ralph-runs.log' \
 		'$(RALPH_DIR)/clones/*/*/*/.pipeline/cache/ralph.log'
 
+install: ralph-logs
+	mkdir -p $(HOME)/.local/bin
+	cp ralph-logs $(HOME)/.local/bin/ralph-logs
+
 clean:
 	rm -f ralph-logs
