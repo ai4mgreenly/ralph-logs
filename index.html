@@ -189,9 +189,11 @@
     });
 
     function connect() {
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const fileParam = new URLSearchParams(location.search).get('file');
-      const wsURL = proto + '//' + location.host + '/ws' + (fileParam ? '?file=' + encodeURIComponent(fileParam) : '');
+      const wsBase = new URL('ws', location.href);
+      wsBase.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (fileParam) wsBase.searchParams.set('file', fileParam);
+      const wsURL = wsBase.toString();
       ws = new WebSocket(wsURL);
 
       ws.onopen = () => {
