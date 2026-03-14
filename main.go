@@ -301,7 +301,7 @@ func main() {
 
 	host := os.Getenv("RALPH_LOGS_HOST")
 	if host == "" {
-		host = "127.0.0.1"
+		host = "localhost"
 	}
 	port := os.Getenv("RALPH_LOGS_PORT")
 	if port == "" {
